@@ -1,0 +1,25 @@
+name: Setup readme
+description: "A composite GitHub Action that updates README badges (workflow names and URLs) to reflect the specified branch (e.g., beta, main)."
+
+inputs:
+    branch_name:
+        required: true
+        description: "Branch name"
+
+runs:
+    using: composite
+    steps:
+      - name: Update README badges for beta
+        env:
+            BRANCH_NAME: ${{ inputs.branch_name }}
+        shell: bash
+        run: |
+            if [ -z "${BRANCH_NAME}" ]; then
+                echo "❌ BRANCH_NAME is empty"
+                exit 1
+            fi
+            echo "Branch is $BRANCH_NAME"
+            sed -i 's/\[\!\[Publish]/[![Beta]/g' README.md
+            sed -i "s#publish-latest.yml#publish-beta.yml#g" README.md
+            sed -i "s#badge.svg?event=release#badge.svg?branch=${BRANCH_NAME}\\&event=pull_request#g" README.md
+            sed -i 's/-latest.svg/-beta.svg/g' README.md

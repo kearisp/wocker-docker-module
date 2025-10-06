@@ -1,0 +1,33 @@
+# Misc
+.idea/
+.vscode/
+/.eslintcache
+.DS_Store
+
+# Source code
+/src
+/test
+*.spec.js
+
+# Build configs
+/.env
+/package-lock.json
+/tsconfig.json
+/tsconfig.build.json
+/.eslintrc.js
+/.babelrc.js
+/jest.config.ts
+/webpack.config.js
+
+# Builds
+/lib/tsconfig.tsbuildinfo
+/coverage
+
+# Dependency directories
+/node_modules
+jspm_packages/
+/.pnp
+.pnp.js
+
+# Development tools
+/.github
