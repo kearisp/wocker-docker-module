@@ -37,9 +37,9 @@ jobs:
           - name: Setup core version
             uses: kearisp/npm-setup-deps-action@v0.0.1
             with:
-                package: @wocker/core
-                tag: beta
-                overrides: @wocker/testing
+                package: "@wocker/core"
+                tag: "beta"
+                overrides: "@wocker/testing"
 
           - name: Cache dependencies
             uses: actions/cache@v4
