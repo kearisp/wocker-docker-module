@@ -7,17 +7,134 @@ import {Duplex} from "stream";
 import type Docker from "dockerode";
 import type {Container} from "dockerode";
 import {ModemService} from "./ModemService";
+import {ImageService} from "./ImageService";
 
 
 @Injectable()
 export class ContainerService {
     public constructor(
         protected readonly modemService: ModemService,
+        protected readonly imageService: ImageService,
         protected readonly logService: LogService
     ) {}
 
     public get docker(): Docker {
         return this.modemService.docker;
+    }
+
+    public async create(params: Params.CreateContainer) {
+        const {
+            name,
+            user,
+            entrypoint,
+            tty = true,
+            image,
+            projectId,
+            restart,
+            memory,
+            memorySwap,
+            ulimits,
+            extraHosts,
+            networkMode = "bridge",
+            links = [],
+            env = {} as any,
+            volumes = [],
+            ports = [],
+            cmd = [],
+            aliases,
+            network: networkName = "workspace"
+        } = params;
+
+        try {
+            const network = this.docker.getNetwork(networkName);
+
+            await network.inspect();
+        }
+        catch(err) {
+            if((err as any).statusCode === 404) {
+                await this.docker.createNetwork({
+                    Name: networkName
+                });
+            }
+        }
+
+        await this.imageService.pull(image);
+
+        return this.docker.createContainer({
+            name,
+            User: user,
+            Image: image,
+            Hostname: name,
+            Labels: {
+                ...projectId ? {projectId} : {}
+            },
+            AttachStdin: true,
+            AttachStdout: true,
+            AttachStderr: true,
+            OpenStdin: true,
+            StdinOnce: false,
+            Entrypoint: entrypoint,
+            Tty: tty,
+            Cmd: cmd,
+            Env: Object.keys(env).map((key) => {
+                const value = env[key];
+
+                return `${key}=${value}`;
+            }),
+            ExposedPorts: ports.reduce<any>((res, value) => {
+                const [,, containerPort, type = "tcp"] = /(\d+):(\d+)(?:\/(\w+))?/.exec(value) || [];
+
+                if(containerPort) {
+                    res[`${containerPort}/${type}`] = {};
+                }
+
+                return res;
+            }, {}),
+            HostConfig: {
+                Memory: memory,
+                MemorySwap: memorySwap,
+                NetworkMode: networkMode,
+                ExtraHosts: extraHosts,
+                Ulimits: ulimits ? Object.keys(ulimits).reduce<any>((res, name) => {
+                    return [
+                        ...res,
+                        {
+                            Name: name,
+                            Hard: ulimits[name].hard,
+                            Soft: ulimits[name].soft
+                        }
+                    ];
+                }, []) : [],
+                ...restart ? {
+                    RestartPolicy: {
+                        Name: restart
+                    }
+                } : {},
+                Binds: volumes,
+                PortBindings: ports.reduce<any>((res, value) => {
+                    const [, hostPort, containerPort, type = "tcp"] = /(\d+):(\d+)(?:\/(\w+))?/.exec(value) || [];
+
+                    if(hostPort && containerPort) {
+                        res[`${containerPort}/${type}`] = [
+                            {HostPort: hostPort}
+                        ];
+                    }
+                    else {
+                        this.logService.warn(`Invalid port format for container "${name}": "${value}". Expected format: hostPort:containerPort[/protocol]`);
+                    }
+
+                    return res;
+                }, {})
+            },
+            NetworkingConfig: {
+                EndpointsConfig: networkMode === "host" ? {} : {
+                    [networkName]: {
+                        Links: links,
+                        Aliases: aliases || (env.VIRTUAL_HOST ? env.VIRTUAL_HOST.split(",") : undefined)
+                    }
+                }
+            }
+        });
     }
 
     public async get(name: string): Promise<Container|null> {
