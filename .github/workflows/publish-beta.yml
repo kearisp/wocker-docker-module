@@ -1,0 +1,74 @@
+name: Beta
+
+on:
+    pull_request:
+        types:
+          - opened
+          - reopened
+          - synchronize
+        paths:
+          - src
+          - package.json
+          - tsconfig.json
+
+jobs:
+    publish-beta:
+        name: Publish beta
+        runs-on: ubuntu-latest
+        environment: publish
+        permissions:
+            contents: read
+            id-token: write
+        steps:
+          - name: Checkout code
+            uses: actions/checkout@v5
+
+          - name: Setup Node.js
+            uses: actions/setup-node@v5
+            with:
+                node-version: 24
+                registry-url: "https://registry.npmjs.org"
+
+          - name: Setup beta version
+            uses: kearisp/npm-version-action@beta
+            with:
+                tag: beta
+
+          - name: Setup core version
+            uses: kearisp/npm-setup-deps-action@beta
+            with:
+                package: "@wocker/core"
+                tag: "beta"
+                overrides: "@wocker/testing"
+
+          - name: Cache dependencies
+            uses: actions/cache@v4
+            with:
+                path: ~/.npm
+                key: ${{ runner.os }}-npm-${{ hashFiles('**/package.json') }}
+                restore-keys: |
+                    ${{ runner.os }}-npm-
+
+          - name: Install dependencies
+            shell: bash
+            run: npm install
+
+          - name: Test
+            uses: ./.github/actions/test
+            timeout-minutes: 2
+            with:
+                version: "beta"
+                gist_token: ${{ secrets.GIST_TOKEN }}
+                gist_id: ${{ secrets.GIST_ID }}
+
+          - name: Setup readme
+            uses: ./.github/actions/setup-readme
+            with:
+                branch_name: ${{ github.head_ref || github.ref }}
+
+          - name: Publish beta to NPM
+            if: ${{ github.repository_owner == 'kearisp' }}
+            shell: bash
+            env:
+                NODE_AUTH_TOKEN: ${{ secrets.NODE_AUTH_TOKEN }}
+            run: npm publish --provenance --tag beta --access public
