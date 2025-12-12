@@ -1,6 +1,7 @@
 import {describe, it, expect, beforeEach, afterEach, jest} from "@jest/globals";
 import {FileSystem, ApplicationContext} from "@wocker/core";
-import {Test, Fixtures, ModemMock} from "@wocker/testing";
+import {Test} from "@wocker/testing";
+import {ModemMock, Fixtures} from "../../test/modem";
 import {ROOT_DIR} from "../env";
 import {ModemService} from "./ModemService";
 import {ImageService} from "./ImageService";
