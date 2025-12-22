@@ -124,7 +124,11 @@ export class ContainerService {
                     }
 
                     return res;
-                }, {})
+                }, {}),
+                ConsoleSize: [
+                    process.stdout.rows,
+                    process.stdout.columns
+                ]
             },
             NetworkingConfig: {
                 EndpointsConfig: networkMode === "host" ? {} : {
