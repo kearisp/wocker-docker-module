@@ -86,6 +86,52 @@ export class ModemService extends CoreModemService {
             [id: string]: number;
         }) = {};
 
+        const renderProgressBar = (current: number, total: number, width: number): string => {
+            const currentWidth = total > 0 ? Math.floor(width * (current / total)) : 0;
+            return "█".repeat(currentWidth) + "░".repeat(Math.max(0, width - currentWidth));
+        };
+
+        const renderLine = (id: string, status: string, current?: number, total?: number) => {
+            if(typeof mapLines[id] === "undefined") {
+                mapLines[id] = line;
+                line++;
+            }
+
+            const targetLine = mapLines[id];
+            const dy = line - targetLine - 1;
+
+            if(dy > 0) {
+                process.stdout.write("\x1b[s");
+                process.stdout.write(`\x1b[${dy}A`);
+            }
+
+            process.stdout.write("\x1b[2K\r");
+
+            let str = `${id}: ${status}`;
+
+            if(typeof current !== "undefined" && typeof total !== "undefined") {
+                const terminalWidth = process.stdout.columns || 80;
+                const sizeStr = `${formatSizeUnits(current)}/${formatSizeUnits(total)}`;
+                const barWidth = terminalWidth - id.length - status.length - sizeStr.length - 10;
+
+                if(barWidth > 10) {
+                    str = `${id}: ${status} [${renderProgressBar(current, total, barWidth)}] ${sizeStr}`;
+                }
+                else {
+                    str = `${id}: ${status} ${sizeStr}`;
+                }
+            }
+
+            process.stdout.write(str);
+
+            if(dy > 0) {
+                process.stdout.write("\x1b[u");
+            }
+            else {
+                process.stdout.write("\n");
+            }
+        };
+
         return new Promise<void>((resolve, reject) => {
             const handleEnd = () => {
                 if(!isEnded) {
@@ -111,16 +157,48 @@ export class ModemService extends CoreModemService {
                             longs: String,
                             bytes: String,
                             defaults: true
-                        });
+                        }) as {
+                            vertexes?: Array<{
+                                digest: string;
+                                name: string;
+                            }>;
+                            statuses?: Array<{
+                                ID: string;
+                                name: string;
+                                current: string;
+                                total: string;
+                            }>;
+                            logs?: Array<{
+                                msg: string;
+                            }>;
+                        };
 
-                        console.dir(obj, {
-                            depth: null
-                        });
+                        if(obj.vertexes) {
+                            for(const vertex of obj.vertexes) {
+                                if(vertex.name) {
+                                    renderLine(vertex.digest.substring(0, 12), vertex.name);
+                                }
+                            }
+                        }
+
+                        if(obj.statuses) {
+                            for(const status of obj.statuses) {
+                                renderLine(status.ID, status.name, parseInt(status.current), parseInt(status.total));
+                            }
+                        }
+
+                        if(obj.logs) {
+                            for(const log of obj.logs) {
+                                const msg = Buffer.from(log.msg, "base64").toString();
+                                process.stdout.write(msg);
+                                line += msg.split("\n").length - 1;
+                            }
+                        }
                     }
                     else if(item.id === "moby.image.id") {
-                        console.dir(item, {
-                            depth: null
-                        });
+                        const str = `Image ID: ${item.aux.ID}`;
+                        process.stdout.write(`${str}\n`);
+                        line++;
                     }
                     else if(item.stream) {
                         process.stdout.write(`${item.stream}`);
@@ -136,55 +214,19 @@ export class ModemService extends CoreModemService {
                             } = {}
                         } = item;
 
-                        if(typeof mapLines[id] === "undefined") {
-                            mapLines[id] = line;
-                        }
-
-                        const targetLine = typeof mapLines[id] !== "undefined"
-                            ? mapLines[id]
-                            : line;
-                        const dy = line - targetLine;
-
-                        if(dy > 0) {
-                            process.stdout.write("\x1b[s");
-                            process.stdout.write(`\x1b[${dy}A`);
-                        }
-
-                        process.stdout.write("\x1b[2K");
-
-                        let str = `${id}: ${status}\n`;
-
-                        if(status === "Downloading") {
-                            const width = process.stdout.columns;
-
-                            const sizeWidth = 19,
-                                totalWidth = width - id.length - status.length - sizeWidth - 7,
-                                currentWidth = Math.floor(totalWidth * (current / total)),
-                                formatSize = `${formatSizeUnits(current)}/${formatSizeUnits(total)}`;
-
-                            str = `${id}: ${status} [${"█".repeat(currentWidth)}${"░".repeat(totalWidth - currentWidth)}] ${formatSize}\n`;
-                        }
-
-                        process.stdout.write(str);
-
-                        if(dy > 0) {
-                            process.stdout.write("\x1b[u");
-                        }
-                        else {
-                            line++;
-                        }
+                        renderLine(id, status, current, total);
                     }
                     else if(typeof item.aux === "object") {
                         const str = `auxID: ${item.aux.ID}`;
 
                         process.stdout.write(`${str}\n`);
 
-                        line += Math.ceil(str.length / process.stdout.columns);
+                        line += Math.ceil(str.length / (process.stdout.columns || 80));
                     }
                     else if(item.status) {
                         process.stdout.write(`${item.status}\n`);
 
-                        line += Math.ceil(item.status.length / process.stdout.columns);
+                        line += Math.ceil(item.status.length / (process.stdout.columns || 80));
                     }
                     else {
                         console.info("Unexpected data", item);
