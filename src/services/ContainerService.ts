@@ -22,7 +22,7 @@ export class ContainerService {
         return this.modemService.docker;
     }
 
-    public async create(params: Params.CreateContainer) {
+    public async create(params: Params.CreateContainer): Promise<Container> {
         const {
             name,
             user,
