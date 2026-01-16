@@ -1,5 +1,5 @@
-import {describe, it, expect, afterEach, jest} from "@jest/globals";
-import {FileSystem} from "@wocker/core";
+import {describe, it, expect, beforeEach, afterEach, jest} from "@jest/globals";
+import {FileSystem, ApplicationContext} from "@wocker/core";
 import {Test} from "@wocker/testing";
 import {ModemMock, Fixtures} from "docker-modem-mock";
 import {ModemService} from "./ModemService";
@@ -13,11 +13,9 @@ describe("ContainerService", () => {
     const fs = new FileSystem(`${ROOT_DIR}/fixtures`),
           fixtures = Fixtures.fromFS(fs);
 
-    afterEach((): void => {
-        jest.resetAllMocks();
-    });
+    let context: ApplicationContext;
 
-    const getContext = async () => {
+    beforeEach(async () => {
         class TestModemService extends ModemService {
             protected _modem?: ModemMock;
 
@@ -32,7 +30,7 @@ describe("ContainerService", () => {
             }
         }
 
-        return Test
+        context = await Test
             .createTestingModule({
                 providers: [
                     ContainerService,
@@ -43,11 +41,14 @@ describe("ContainerService", () => {
             })
             .overrideProvider(ModemService).useProvider(TestModemService)
             .build();
-    };
+    });
+
+    afterEach(() => {
+        jest.resetAllMocks();
+    });
 
     it("should create container", async () => {
-        const context = await getContext(),
-              containerService = context.get(ContainerService);
+        const containerService = context.get(ContainerService);
 
         expect(containerService).toBeInstanceOf(ContainerService);
 

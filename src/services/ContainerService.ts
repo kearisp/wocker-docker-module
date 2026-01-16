@@ -1,14 +1,59 @@
 import {
     Injectable,
-    LogService,
-    DockerServiceParams as Params
+    LogService
 } from "@wocker/core";
 import {Duplex} from "stream";
 import type Docker from "dockerode";
-import type {Container} from "dockerode";
+import type {Container, ContainerInfo} from "dockerode";
 import {ModemService} from "./ModemService";
 import {ImageService} from "./ImageService";
 
+
+export namespace ContainerService {
+    export type CreateOptions = {
+        name: string;
+        labels?: {
+            [key: string]: string;
+        };
+        image: string;
+        user?: string;
+        restart?: "always";
+        entrypoint?: string | string[];
+        /** @deprecated */
+        projectId?: string;
+        tty?: boolean;
+        memory?: number;
+        memorySwap?: number;
+        ulimits?: {
+            [key: string]: {
+                hard?: number;
+                soft?: number;
+            };
+        };
+        links?: string[];
+        env?: {
+            [key: string]: string;
+        };
+        networkMode?: string;
+        extraHosts?: any;
+        volumes?: string[];
+        ports?: string[];
+        cmd?: string[];
+        network?: string;
+        aliases?: string[];
+    };
+
+    export type ListOptions = {
+        all?: boolean;
+        name?: string | string[];
+    };
+
+    export type ExecOptions = {
+        cmd: string[];
+        tty?: boolean;
+        user?: string;
+    };
+}
 
 @Injectable()
 export class ContainerService {
@@ -22,9 +67,10 @@ export class ContainerService {
         return this.modemService.docker;
     }
 
-    public async create(params: Params.CreateContainer): Promise<Container> {
+    public async create(params: ContainerService.CreateOptions): Promise<Container> {
         const {
             name,
+            labels,
             user,
             entrypoint,
             tty = true,
@@ -66,7 +112,8 @@ export class ContainerService {
             Image: image,
             Hostname: name,
             Labels: {
-                ...projectId ? {projectId} : {}
+                ...projectId ? {projectId} : {},
+                ...labels || {}
             },
             AttachStdin: true,
             AttachStdout: true,
@@ -141,23 +188,41 @@ export class ContainerService {
         });
     }
 
-    public async get(name: string): Promise<Container|null> {
-        const containers = await this.docker.listContainers({
+    public async get(name: string | string[]): Promise<Container | null> {
+        const containers = await this.list({
             all: true,
-            filters: {
-                name: [name]
+            name
+        });
+
+        const names = Array.isArray(name) ? name : [name];
+
+        for(const n of names) {
+            const info = containers.find((c) => c.Names.includes(`/${n}`));
+
+            if(info) {
+                return this.docker.getContainer(info.Id);
             }
-        });
-
-        const container = containers.find((container) => {
-            return container.Names.indexOf("/" + name) >= 0;
-        });
-
-        if(!container) {
-            return null;
         }
 
-        return this.docker.getContainer(container.Id);
+        return null;
+    }
+
+    public async list(options: ContainerService.ListOptions = {}): Promise<ContainerInfo[]> {
+        const {
+            all,
+            name
+        } = options;
+
+        const filters: any = {};
+
+        if(name) {
+            filters.name = Array.isArray(name) ? name : [name]
+        }
+
+        return this.docker.listContainers({
+            all,
+            filters
+        });
     }
 
     public async rm(name: string): Promise<void> {
@@ -190,7 +255,11 @@ export class ContainerService {
         }
     }
 
-    public async exec(nameOrContainer: string|Container, options: Params.Exec|string[], _tty?: boolean): Promise<Duplex | null> {
+    public async exec(
+        nameOrContainer: string | Container,
+        options: ContainerService.ExecOptions | string[],
+        _tty?: boolean
+    ): Promise<Duplex | null> {
         const container: Container | null = typeof nameOrContainer === "string"
             ? await this.get(nameOrContainer)
             : nameOrContainer;
@@ -206,7 +275,7 @@ export class ContainerService {
         } = Array.isArray(options) ? {
             cmd: options,
             tty: _tty
-        } as Params.Exec : options;
+        } as ContainerService.ExecOptions : options;
 
         const exec = await container.exec({
             AttachStdin: true,
@@ -251,6 +320,33 @@ export class ContainerService {
                 process.off("SIGWINCH", handleResize);
             }
         }
+
+        return stream;
+    }
+
+    public async logs(nameOrContainer: string | Container): Promise<NodeJS.ReadableStream | null> {
+        const container: Container | null = typeof nameOrContainer === "string"
+            ? await this.get(nameOrContainer)
+            : nameOrContainer;
+
+        if(!container) {
+            return null;
+        }
+
+        const stream = await container.logs({
+            stdout: true,
+            stderr: true,
+            follow: true,
+            tail: 4
+        });
+
+        stream.on("data", (data: any) => {
+            process.stdout.write(data);
+        });
+
+        stream.on("error", (data: any) => {
+            process.stderr.write(data);
+        });
 
         return stream;
     }

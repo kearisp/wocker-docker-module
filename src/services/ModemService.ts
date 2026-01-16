@@ -1,6 +1,7 @@
 import {
     Injectable,
     ModemService as CoreModemService,
+    ProcessService,
     LogService
 } from "@wocker/core";
 import type Modem from "docker-modem";
@@ -15,6 +16,7 @@ export class ModemService extends CoreModemService {
     protected _docker?: Docker;
 
     public constructor(
+        protected readonly processService: ProcessService,
         protected readonly protoService: ProtoService,
         protected readonly logService: LogService
     ) {
