@@ -2,17 +2,44 @@ import {
     Injectable,
     Inject,
     FileSystem,
-    DockerServiceParams as Params,
     EnvConfig,
     FileSystemDriver,
     FILE_SYSTEM_DRIVER_KEY
 } from "@wocker/core";
 import type Docker from "dockerode";
+import type {ImageInfo} from "dockerode";
 import DockerIgnore from "@balena/dockerignore";
 import tar from "tar-stream";
 import zlib from "zlib";
 import {ModemService} from "./ModemService";
 
+
+export namespace ImageService {
+    export type ListOptions = {
+        tag?: string;
+        reference?: string[];
+        labels?: {
+            [key: string]: string;
+        };
+    };
+
+    export type BuildOptions = {
+        version?: "1" | "2";
+        tag: string;
+        buildArgs?: {
+            [key: string]: string;
+        };
+        labels?: {
+            [key: string]: string;
+        };
+        context: string | string[];
+    } & ({
+        /** @deprecated */
+        src: string;
+    } | {
+        dockerfile: string;
+    });
+}
 
 @Injectable("DOCKER_IMAGE_SERVICE")
 export class ImageService {
@@ -26,7 +53,43 @@ export class ImageService {
         return this.modemService.docker;
     }
 
-    public async build(params: Params.BuildImage): Promise<void> {
+    public async list(options?: ImageService.ListOptions): Promise<ImageInfo[]> {
+        const {
+            tag,
+            reference,
+            labels
+        } = options || {};
+
+        const filters: any = {};
+
+        if(reference) {
+            filters.reference = [
+                ...filters.reference || [],
+                ...reference
+            ];
+        }
+
+        if(tag) {
+            filters.reference = [
+                ...filters.reference || [],
+                tag
+            ];
+        }
+
+        if(labels) {
+            filters.label = [];
+
+            for(const i in labels) {
+                filters.label.push(`${i}=${labels[i]}`);
+            }
+        }
+
+        return this.docker.listImages({
+            filters: JSON.stringify(filters)
+        });
+    }
+
+    public async build(params: ImageService.BuildOptions): Promise<void> {
         const {
             version,
             tag,

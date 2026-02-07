@@ -12,6 +12,10 @@ import {ModemService} from "./ModemService";
 import {ImageService} from "./ImageService";
 
 
+export namespace DockerService {
+
+}
+
 @Injectable("DOCKER_SERVICE")
 export class DockerService extends CoreDockerService {
     public constructor(
@@ -57,11 +61,11 @@ export class DockerService extends CoreDockerService {
         await volume.remove();
     }
 
-    public async createContainer(params: Params.CreateContainer): Promise<Container> {
+    public async createContainer(params: ContainerService.CreateOptions): Promise<Container> {
         return this.containerService.create(params);
     }
 
-    public async getContainer(name: string): Promise<Container|null> {
+    public async getContainer(name: string | string[]): Promise<Container | null> {
         return this.containerService.get(name);
     }
 
@@ -69,7 +73,7 @@ export class DockerService extends CoreDockerService {
         await this.containerService.rm(name);
     }
 
-    public async buildImage(params: Params.BuildImage): Promise<void> {
+    public async buildImage(params: ImageService.BuildOptions): Promise<void> {
         await this.imageService.build(params);
     }
 
@@ -82,46 +86,14 @@ export class DockerService extends CoreDockerService {
     }
 
     public async imageLs(options?: Params.ImageList) {
-        const {
-            tag,
-            reference,
-            labels
-        } = options || {};
-
-        const filters: any = {};
-
-        if(reference) {
-            filters.reference = [
-                ...filters.reference || [],
-                ...reference
-            ];
-        }
-
-        if(tag) {
-            filters.reference = [
-                ...filters.reference || [],
-                tag
-            ];
-        }
-
-        if(labels) {
-            filters.label = [];
-
-            for(const i in labels) {
-                filters.label.push(`${i}=${labels[i]}`);
-            }
-        }
-
-        return this.docker.listImages({
-            filters: JSON.stringify(filters)
-        });
+        return this.imageService.list(options);
     }
 
     public async pullImage(tag: string): Promise<void> {
         await this.imageService.pull(tag);
     }
 
-    public async attach(containerOrName: string|Container): Promise<NodeJS.ReadWriteStream|null> {
+    public async attach(containerOrName: string | Container): Promise<NodeJS.ReadWriteStream | null> {
         let container: Container|null = typeof containerOrName === "string"
             ? await this.getContainer(containerOrName)
             : containerOrName;
@@ -162,35 +134,16 @@ export class DockerService extends CoreDockerService {
         return this.modemService.attachStream(stream);
     }
 
-    public async exec(nameOrContainer: string|Container, options: Params.Exec|string[], _tty?: boolean): Promise<Duplex|null> {
-        return await this.containerService.exec(nameOrContainer, options, _tty);
+    public async exec(
+        nameOrContainer: string | Container,
+        options: ContainerService.ExecOptions | string[],
+        _tty?: boolean
+    ): Promise<Duplex | null> {
+        return this.containerService.exec(nameOrContainer, options, _tty);
     }
 
-    public async logs(containerOrName: string|Container): Promise<NodeJS.ReadableStream|null> {
-        const container: Container|null = typeof containerOrName === "string"
-            ? await this.getContainer(containerOrName)
-            : containerOrName;
-
-        if(!container) {
-            return null;
-        }
-
-        const stream = await container.logs({
-            stdout: true,
-            stderr: true,
-            follow: true,
-            tail: 4
-        });
-
-        stream.on("data", (data: any) => {
-            process.stdout.write(data);
-        });
-
-        stream.on("error", (data: any) => {
-            process.stderr.write(data);
-        });
-
-        return stream;
+    public async logs(nameOrContainer: string | Container): Promise<NodeJS.ReadableStream | null> {
+        return this.containerService.logs(nameOrContainer);
     }
 
     public async followProgress(stream: NodeJS.ReadableStream): Promise<void> {
