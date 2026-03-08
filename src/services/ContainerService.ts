@@ -1,6 +1,7 @@
 import {
     Injectable,
-    LogService
+    LogService,
+    ContainerService as CoreService
 } from "@wocker/core";
 import {Duplex} from "stream";
 import type Docker from "dockerode";
@@ -9,65 +10,21 @@ import {ModemService} from "./ModemService";
 import {ImageService} from "./ImageService";
 
 
-export namespace ContainerService {
-    export type CreateOptions = {
-        name: string;
-        labels?: {
-            [key: string]: string;
-        };
-        image: string;
-        user?: string;
-        restart?: "always";
-        entrypoint?: string | string[];
-        /** @deprecated */
-        projectId?: string;
-        tty?: boolean;
-        memory?: number;
-        memorySwap?: number;
-        ulimits?: {
-            [key: string]: {
-                hard?: number;
-                soft?: number;
-            };
-        };
-        links?: string[];
-        env?: {
-            [key: string]: string;
-        };
-        networkMode?: string;
-        extraHosts?: any;
-        volumes?: string[];
-        ports?: string[];
-        cmd?: string[];
-        network?: string;
-        aliases?: string[];
-    };
-
-    export type ListOptions = {
-        all?: boolean;
-        name?: string | string[];
-    };
-
-    export type ExecOptions = {
-        cmd: string[];
-        tty?: boolean;
-        user?: string;
-    };
-}
-
-@Injectable()
-export class ContainerService {
+@Injectable("DOCKER_CONTAINER_SERVICE")
+export class ContainerService extends CoreService {
     public constructor(
         protected readonly modemService: ModemService,
         protected readonly imageService: ImageService,
         protected readonly logService: LogService
-    ) {}
+    ) {
+        super();
+    }
 
     public get docker(): Docker {
         return this.modemService.docker;
     }
 
-    public async create(params: ContainerService.CreateOptions): Promise<Container> {
+    public async create(params: CoreService.CreateParams): Promise<Container> {
         const {
             name,
             labels,
@@ -207,7 +164,7 @@ export class ContainerService {
         return null;
     }
 
-    public async list(options: ContainerService.ListOptions = {}): Promise<ContainerInfo[]> {
+    public async list(options: CoreService.ListParams = {}): Promise<ContainerInfo[]> {
         const {
             all,
             name
@@ -257,7 +214,7 @@ export class ContainerService {
 
     public async exec(
         nameOrContainer: string | Container,
-        options: ContainerService.ExecOptions | string[],
+        options: CoreService.ExecParams,
         _tty?: boolean
     ): Promise<Duplex | null> {
         const container: Container | null = typeof nameOrContainer === "string"
@@ -272,10 +229,7 @@ export class ContainerService {
             cmd = [],
             tty = false,
             user
-        } = Array.isArray(options) ? {
-            cmd: options,
-            tty: _tty
-        } as ContainerService.ExecOptions : options;
+        } = Array.isArray(options) ? {cmd: options, tty: _tty} : options;
 
         const exec = await container.exec({
             AttachStdin: true,
@@ -324,28 +278,37 @@ export class ContainerService {
         return stream;
     }
 
-    public async logs(nameOrContainer: string | Container): Promise<NodeJS.ReadableStream | null> {
+    public async logs(nameOrContainer: string | Container, params: CoreService.LogsParams = {}): Promise<NodeJS.ReadableStream | null> {
         const container: Container | null = typeof nameOrContainer === "string"
             ? await this.get(nameOrContainer)
             : nameOrContainer;
+
+        const {
+            signal
+        } = params || {};
 
         if(!container) {
             return null;
         }
 
         const stream = await container.logs({
+            abortSignal: signal,
             stdout: true,
             stderr: true,
             follow: true,
             tail: 4
         });
 
-        stream.on("data", (data: any) => {
+        stream.on("data", (data: Buffer) => {
             process.stdout.write(data);
         });
 
-        stream.on("error", (data: any) => {
-            process.stderr.write(data);
+        stream.on("error", (err: Error) => {
+            if(err.message === "aborted") {
+                return;
+            }
+
+            process.stderr.write(err.message);
         });
 
         return stream;

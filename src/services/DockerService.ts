@@ -12,10 +12,6 @@ import {ModemService} from "./ModemService";
 import {ImageService} from "./ImageService";
 
 
-export namespace DockerService {
-
-}
-
 @Injectable("DOCKER_SERVICE")
 export class DockerService extends CoreDockerService {
     public constructor(
@@ -61,12 +57,17 @@ export class DockerService extends CoreDockerService {
         await volume.remove();
     }
 
-    public async createContainer(params: ContainerService.CreateOptions): Promise<Container> {
+    public async createContainer(params: CoreDockerService.CreateContainerParams): Promise<Container> {
         return this.containerService.create(params);
     }
 
     public async getContainer(name: string | string[]): Promise<Container | null> {
         return this.containerService.get(name);
+    }
+
+    // this.dockerService.listContainer
+    public async listContainer(params: CoreDockerService.ListContainerParams) {
+        return this.containerService.list(params);
     }
 
     public async removeContainer(name: string): Promise<void> {
@@ -136,17 +137,21 @@ export class DockerService extends CoreDockerService {
 
     public async exec(
         nameOrContainer: string | Container,
-        options: ContainerService.ExecOptions | string[],
+        options: CoreDockerService.ExecParams,
         _tty?: boolean
     ): Promise<Duplex | null> {
         return this.containerService.exec(nameOrContainer, options, _tty);
     }
 
-    public async logs(nameOrContainer: string | Container): Promise<NodeJS.ReadableStream | null> {
-        return this.containerService.logs(nameOrContainer);
+    public async logs(containerOrName: CoreDockerService.ContainerOrName, params?: CoreDockerService.LogsParams): Promise<NodeJS.ReadableStream | null> {
+        return this.containerService.logs(containerOrName, params);
     }
 
     public async followProgress(stream: NodeJS.ReadableStream): Promise<void> {
         await this.modemService.followProgress(stream);
     }
+}
+
+export namespace DockerService {
+
 }
