@@ -24,6 +24,20 @@ export class ModemService extends CoreModemService {
     }
 
     public get modem(): Modem {
+        if(!this._modem && process.env.WOCKER_FIXTURES) {
+            try {
+                const {ModemRecorder, Fixtures} = require("docker-modem-mock");
+
+                this._modem = new ModemRecorder({
+                    socketPath: "/var/run/docker.sock",
+                    recordFixtures: Fixtures.fromPath(process.env.WOCKER_FIXTURES)
+                });
+            }
+            catch(err) {
+                this.logService.error((err as Error).message);
+            }
+        }
+
         if(!this._modem) {
             const Modem = require("docker-modem");
 
@@ -33,6 +47,14 @@ export class ModemService extends CoreModemService {
         }
 
         return this._modem!;
+    }
+
+    protected get stdin() {
+        return this.processService.stdin || process.stdin;
+    }
+
+    protected get stdout() {
+        return this.processService.stdout || process.stdout;
     }
 
     public get docker(): Docker {
@@ -48,16 +70,16 @@ export class ModemService extends CoreModemService {
     }
 
     public async attachStream(stream: NodeJS.ReadWriteStream): Promise<NodeJS.ReadWriteStream> {
-        if(process.stdin.isTTY) {
-            process.stdin.setRawMode(true);
+        if(this.stdin.isTTY) {
+            this.stdin.setRawMode(true);
         }
 
-        process.stdin.resume();
-        process.stdin.setEncoding("utf8");
-        process.stdin.pipe(stream);
+        this.stdin.resume();
+        this.stdin.setEncoding("utf8");
+        this.stdin.pipe(stream);
 
         stream.setEncoding("utf8");
-        stream.pipe(process.stdout);
+        stream.pipe(this.stdout);
 
         try {
             await new Promise<void>((resolve, reject) => {
@@ -66,15 +88,15 @@ export class ModemService extends CoreModemService {
             });
         }
         finally {
-            process.stdin.pause();
+            this.stdin.pause();
 
-            if(process.stdin.isTTY) {
-                process.stdin.setRawMode(false);
+            if(this.stdin.isTTY) {
+                this.stdin.setRawMode(false);
             }
 
-            process.stdin.unpipe(stream);
+            this.stdin.unpipe(stream);
 
-            stream.unpipe(process.stdout);
+            stream.unpipe(this.stdout);
         }
 
         return stream;
@@ -90,6 +112,7 @@ export class ModemService extends CoreModemService {
 
         const renderProgressBar = (current: number, total: number, width: number): string => {
             const currentWidth = total > 0 ? Math.floor(width * (current / total)) : 0;
+
             return "█".repeat(currentWidth) + "░".repeat(Math.max(0, width - currentWidth));
         };
 
@@ -103,16 +126,16 @@ export class ModemService extends CoreModemService {
             const dy = line - targetLine - 1;
 
             if(dy > 0) {
-                process.stdout.write("\x1b[s");
-                process.stdout.write(`\x1b[${dy}A`);
+                this.stdout.write("\x1b[s");
+                this.stdout.write(`\x1b[${dy}A`);
             }
 
-            process.stdout.write("\x1b[2K\r");
+            this.stdout.write("\x1b[2K\r");
 
             let str = `${id}: ${status}`;
 
             if(typeof current !== "undefined" && typeof total !== "undefined") {
-                const terminalWidth = process.stdout.columns || 80;
+                const terminalWidth = this.stdout.columns || 80;
                 const sizeStr = `${formatSizeUnits(current)}/${formatSizeUnits(total)}`;
                 const barWidth = terminalWidth - id.length - status.length - sizeStr.length - 10;
 
@@ -124,13 +147,13 @@ export class ModemService extends CoreModemService {
                 }
             }
 
-            process.stdout.write(str);
+            this.stdout.write(str);
 
             if(dy > 0) {
-                process.stdout.write("\x1b[u");
+                this.stdout.write("\x1b[u");
             }
             else {
-                process.stdout.write("\n");
+                this.stdout.write("\n");
             }
         };
 
@@ -192,18 +215,18 @@ export class ModemService extends CoreModemService {
                         if(obj.logs) {
                             for(const log of obj.logs) {
                                 const msg = Buffer.from(log.msg, "base64").toString();
-                                process.stdout.write(msg);
+                                this.stdout.write(msg);
                                 line += msg.split("\n").length - 1;
                             }
                         }
                     }
                     else if(item.id === "moby.image.id") {
                         const str = `Image ID: ${item.aux.ID}`;
-                        process.stdout.write(`${str}\n`);
+                        this.stdout.write(`${str}\n`);
                         line++;
                     }
                     else if(item.stream) {
-                        process.stdout.write(`${item.stream}`);
+                        this.stdout.write(`${item.stream}`);
                         line += item.stream.split("\n").length - 1;
                     }
                     else if(item.id) {
@@ -221,14 +244,14 @@ export class ModemService extends CoreModemService {
                     else if(typeof item.aux === "object") {
                         const str = `auxID: ${item.aux.ID}`;
 
-                        process.stdout.write(`${str}\n`);
+                        this.stdout.write(`${str}\n`);
 
-                        line += Math.ceil(str.length / (process.stdout.columns || 80));
+                        line += Math.ceil(str.length / (this.stdout.columns || 80));
                     }
                     else if(item.status) {
-                        process.stdout.write(`${item.status}\n`);
+                        this.stdout.write(`${item.status}\n`);
 
-                        line += Math.ceil(item.status.length / (process.stdout.columns || 80));
+                        line += Math.ceil(item.status.length / (this.stdout.columns || 80));
                     }
                     else {
                         console.info("Unexpected data", item);

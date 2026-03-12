@@ -1,5 +1,5 @@
 import {describe, it, expect, beforeEach, afterEach, jest} from "@jest/globals";
-import {FileSystem, ApplicationContext} from "@wocker/core";
+import {FileSystem, ApplicationContext, ProcessService} from "@wocker/core";
 import {Test} from "@wocker/testing";
 import {ModemMock, Fixtures} from "docker-modem-mock";
 import {ROOT_DIR} from "../env";
@@ -47,10 +47,14 @@ describe("ImageService", (): void => {
     });
 
     it("should build image", async (): Promise<void> => {
-        const imageService = context.get(ImageService);
-        const spyWrite = jest.spyOn(process.stdout, "write");
+        const processService = context.get(ProcessService),
+              imageService = context.get(ImageService);
 
-        spyWrite.mockImplementation(() => true);
+        let data: string = "";
+
+        processService.stdout.on("data", (chunk) => {
+            data += chunk.toString();
+        });
 
         await imageService.build({
             tag: "dockerfile-project:latest",
@@ -59,8 +63,7 @@ describe("ImageService", (): void => {
             version: "1"
         });
 
-        expect(spyWrite).toHaveBeenCalled();
-        spyWrite.mockReset();
+        expect(data).toContain("Successfully tagged dockerfile-project:latest");
 
         await expect(imageService.exists("dockerfile-project:latest")).resolves.toBeTruthy();
     });
