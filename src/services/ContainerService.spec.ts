@@ -1,5 +1,5 @@
 import {describe, it, expect, beforeEach, afterEach, jest} from "@jest/globals";
-import {FileSystem, ApplicationContext} from "@wocker/core";
+import {FileSystem, ApplicationContext, ProcessService} from "@wocker/core";
 import {Test} from "@wocker/testing";
 import {ModemMock, Fixtures} from "docker-modem-mock";
 import {ModemService} from "./ModemService";
@@ -48,25 +48,26 @@ describe("ContainerService", () => {
     });
 
     it("should create container", async () => {
-        const containerService = context.get(ContainerService);
+        const processService = context.get(ProcessService),
+              containerService = context.get(ContainerService);
 
         expect(containerService).toBeInstanceOf(ContainerService);
 
-        const spyWrite = jest.spyOn(process.stdout, "write");
-        spyWrite.mockImplementation(() => true);
+        let data = "";
+
+        processService.stdout.on("data", (chunk) => {
+            data += chunk.toString();
+        });
 
         const container = await containerService.create({
             name: "Test",
             image: "php:8.3-apache"
         });
 
-        expect(spyWrite).toHaveBeenCalled();
-        spyWrite.mockReset();
-
-        console.log(">_<_<");
+        expect(data).toContain("Downloaded newer image for php:8.3-apache");
 
         const inspect = await container.inspect();
 
-        expect(inspect.Name).toBe("Test");
+        expect(inspect.Name).toBe("/Test");
     });
 });
