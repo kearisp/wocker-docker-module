@@ -4,46 +4,23 @@ import {
     FileSystem,
     EnvConfig,
     FileSystemDriver,
+    ProcessService,
     FILE_SYSTEM_DRIVER_KEY
 } from "@wocker/core";
 import type Docker from "dockerode";
 import type {ImageInfo} from "dockerode";
 import DockerIgnore from "@balena/dockerignore";
-import tar from "tar-stream";
+import tar, {Pack} from "tar-stream";
+import {Readable} from "stream";
+import {pipeline} from "stream/promises";
 import zlib from "zlib";
 import {ModemService} from "./ModemService";
 
 
-export namespace ImageService {
-    export type ListOptions = {
-        tag?: string;
-        reference?: string[];
-        labels?: {
-            [key: string]: string;
-        };
-    };
-
-    export type BuildOptions = {
-        version?: "1" | "2";
-        tag: string;
-        buildArgs?: {
-            [key: string]: string;
-        };
-        labels?: {
-            [key: string]: string;
-        };
-        context: string | string[];
-    } & ({
-        /** @deprecated */
-        src: string;
-    } | {
-        dockerfile: string;
-    });
-}
-
 @Injectable("DOCKER_IMAGE_SERVICE")
 export class ImageService {
     public constructor(
+        protected readonly processService: ProcessService,
         protected readonly modemService: ModemService,
         @Inject(FILE_SYSTEM_DRIVER_KEY)
         protected readonly driver: FileSystemDriver
@@ -93,7 +70,6 @@ export class ImageService {
         const {
             version,
             tag,
-            context,
             labels,
             buildArgs
         } = params;
@@ -102,16 +78,72 @@ export class ImageService {
             ? params.dockerfile
             : params.src;
 
-        const pack = tar.pack({});
-        const paths = new Set();
+        const contexts = Array.isArray(params.context)
+            ? ([...params.context]).reverse()
+            : [params.context];
 
-        (Array.isArray(context) ? [...context] : [context])
-            .reverse()
-            .forEach((context) => {
+        const pack = tar.pack({});
+
+        const createPackV3 = async (pack: Pack, contexts: string[]) => {
+            const packPaths = new Set();
+
+            const packDir = async (fs: FileSystem, filter: (path: string) => boolean, dirPath: string) => {
+                const paths = fs.readdir(dirPath);
+
+                for(const path of paths) {
+                    const fullPath = dirPath ? `${dirPath}/${path}` : path;
+
+                    if(packPaths.has(fullPath) || !filter(fullPath)) {
+                        continue;
+                    }
+
+                    packPaths.add(fullPath);
+
+                    const stat = fs.stat(fullPath);
+
+                    if(stat.isDirectory()) {
+                        pack.entry({
+                            type: "directory",
+                            name: `./${fullPath}/`,
+                            size: 0,
+                            mtime: stat.mtime,
+                            uid: stat.uid,
+                            gid: stat.gid,
+                            mode: stat.mode
+                        });
+
+                        await packDir(fs, filter, fullPath);
+                    }
+                    else if(stat.isFile()) {
+                        const entry = pack.entry({
+                            type: "file",
+                            name: `./${fullPath}`,
+                            size: stat.size,
+                            mtime: stat.mtime,
+                            uid: stat.uid,
+                            gid: stat.gid,
+                            mode: stat.mode
+                        });
+
+                        await pipeline(fs.createReadStream(fullPath), entry);
+                    }
+                    else if(stat.isSymbolicLink()) {
+                        pack.entry({
+                            type: "symlink",
+                            name: `./${fullPath}`,
+                            linkname: fs.readlink(fullPath),
+                            size: 0,
+                            mtime: stat.mtime,
+                            uid: stat.uid,
+                            gid: stat.gid,
+                            mode: stat.mode
+                        });
+                    }
+                }
+            };
+
+            for(const context of contexts) {
                 const fs = new FileSystem(context, this.driver);
-                const files = fs.readdir("", {
-                    recursive: true
-                });
 
                 const filter = fs.exists(".dockerignore")
                     ? DockerIgnore({ignorecase: false})
@@ -119,68 +151,66 @@ export class ImageService {
                         .createFilter()
                     : () => true;
 
-                files.forEach((file) => {
-                    if(paths.has(file) || !filter(file)) {
-                        return;
-                    }
+                await packDir(fs, filter, "");
+            }
+        };
 
-                    const stat = fs.stat(file);
+        let build: Readable = pack;
 
-                    if(stat.isDirectory()) {
-                        pack.entry({
-                            type: "directory",
-                            name: file,
-                            size: 0,
-                            mtime: stat.mtime,
-                            uid: stat.uid,
-                            gid: stat.gid
-                        });
-                    }
-                    else if(stat.isFile()) {
-                        paths.add(file);
-                        pack.entry({
-                            type: "file",
-                            name: file,
-                            size: stat.size,
-                            mtime: stat.mtime,
-                            uid: stat.uid,
-                            gid: stat.gid
-                        }, fs.readFile(file));
-                    }
-                    else if(stat.isSymbolicLink()) {
-                        paths.add(file);
-                        pack.entry({
-                            type: "symlink",
-                            name: file,
-                            linkname: fs.readlink(file),
-                            size: 0,
-                            mtime: stat.mtime,
-                            uid: stat.uid,
-                            gid: stat.gid
-                        });
-                    }
-                });
-            });
+        createPackV3(pack, contexts).then(() => {
+            pack.finalize();
+        });
 
-        pack.finalize();
+        const variant: "tar" | "tar.gz" = "tar" as "tar" | "tar.gz";
 
-        const stream = await this.docker.buildImage(pack.pipe(zlib.createGzip()), {
-            version,
-            t: tag,
-            labels,
-            buildargs: Object.keys(buildArgs || {}).reduce<EnvConfig>((res, key) => {
-                if(buildArgs) {
-                    const value = buildArgs[key];
+        if(variant === "tar.gz") {
+            build = pack.pipe(zlib.createGzip());
+        }
 
-                    if(typeof value !== "undefined") {
-                        res[key] = typeof value !== "string" ? (value as any).toString() : value;
-                    }
+        const resolvedBuildArgs = Object.keys(buildArgs || {}).reduce<EnvConfig>((res, key) => {
+            if(!buildArgs) {
+                return res;
+            }
+
+            const value = buildArgs[key];
+
+            if(typeof value !== "undefined") {
+                // noinspection SuspiciousTypeOfGuard
+                res[key] = typeof value !== "string" ? (value as any).toString() : value;
+            }
+
+            return res;
+        }, {});
+
+        const stream = await new Promise<NodeJS.ReadableStream>((resolve, reject) => {
+            this.docker.modem.dial({
+                path: "/build?",
+                method: "POST",
+                file: build,
+                options: {
+                    version,
+                    t: tag,
+                    labels,
+                    buildargs: resolvedBuildArgs,
+                    rm: true,
+                    dockerfile
+                },
+                headers: {
+                    "Connection": "close"
+                },
+                isStream: true,
+                statusCodes: {
+                    200: true,
+                    500: "server error"
+                }
+            }, (err, data) => {
+                if(err) {
+                     reject(err);
+                     return;
                 }
 
-                return res;
-            }, {}),
-            rm: true,
-            dockerfile
+                resolve(data as NodeJS.ReadableStream);
+            });
         });
 
         await this.modemService.followProgress(stream);
@@ -220,4 +250,31 @@ export class ImageService {
             force
         });
     }
+}
+
+export namespace ImageService {
+    export type ListOptions = {
+        tag?: string;
+        reference?: string[];
+        labels?: {
+            [key: string]: string;
+        };
+    };
+
+    export type BuildOptions = {
+        version?: "1" | "2";
+        tag: string;
+        buildArgs?: {
+            [key: string]: string;
+        };
+        labels?: {
+            [key: string]: string;
+        };
+        context: string | string[];
+    } & ({
+        /** @deprecated */
+        src: string;
+    } | {
+        dockerfile: string;
+    });
 }
