@@ -97,6 +97,15 @@ export class ModemService extends CoreModemService {
         return stream;
     }
 
+    public async demuxStream(stream: NodeJS.ReadWriteStream): Promise<void> {
+        await new Promise<void>((resolve, reject) => {
+            this.modem.demuxStream(stream, this.processService.stdout, this.processService.stderr);
+
+            stream.on("end", resolve);
+            stream.on("error", reject);
+        });
+    }
+
     public async followProgress(stream: NodeJS.ReadableStream): Promise<void> {
         let isEnded = false,
             line = 0;
@@ -120,11 +129,11 @@ export class ModemService extends CoreModemService {
                   dy = line - targetLine;
 
             if(dy > 0) {
-                this.processService.moveCursor(0, -dy);
+                this.processService.moveCursor?.(0, -dy);
             }
 
-            this.processService.clearLine(0);
-            this.processService.cursorTo(0);
+            this.processService.clearLine?.(0);
+            this.processService.cursorTo?.(0);
 
             let str = `${id}: ${status}`;
 
@@ -141,18 +150,22 @@ export class ModemService extends CoreModemService {
                 }
             }
 
-            this.processService.write(str);
+            this.processService.write?.(str);
 
-            this.processService.cursorTo(0);
+            this.processService.cursorTo?.(0);
 
             if(dy > 0) {
-                this.processService.moveCursor(0, dy);
+                this.processService.moveCursor?.(0, dy);
             }
             else {
-                this.processService.write("\n");
+                this.processService.write?.("\n");
                 line++;
             }
         };
+
+        if(!this.processService.write) {
+            console.log("Please update wocker for proper logging");
+        }
 
         return new Promise<void>((resolve, reject) => {
             const handleEnd = () => {
@@ -212,18 +225,18 @@ export class ModemService extends CoreModemService {
                         if(obj.logs) {
                             for(const log of obj.logs) {
                                 const msg = Buffer.from(log.msg, "base64").toString();
-                                this.processService.write(msg);
+                                this.processService.write?.(msg);
                                 line += msg.split("\n").length - 1;
                             }
                         }
                     }
                     else if(item.id === "moby.image.id") {
                         const str = `Image ID: ${item.aux.ID}`;
-                        this.processService.write(`${str}\n`);
+                        this.processService.write?.(`${str}\n`);
                         line++;
                     }
                     else if(item.stream) {
-                        this.processService.write(`${item.stream}`);
+                        this.processService.write?.(`${item.stream}`);
                         line += item.stream.split("\n").length - 1;
                     }
                     else if(item.id) {
@@ -241,18 +254,18 @@ export class ModemService extends CoreModemService {
                     else if(typeof item.aux === "object") {
                         const str = `auxID: ${item.aux.ID}`;
 
-                        this.processService.write(`${str}\n`);
+                        this.processService.write?.(`${str}\n`);
 
                         line += Math.ceil(str.length / (this.stdout.columns || 80));
                     }
                     else if(item.status) {
                         const status = `${item.status}\n`;
-                        this.processService.write(status);
+                        this.processService.write?.(status);
 
                         line += Math.ceil(status.length / (this.stdout.columns || 80));
                     }
                     else {
-                        console.info("Unexpected data", item);
+                        this.processService.write?.(`Unexpected data: ${JSON.stringify(item)}`);
                     }
                 }
             });
