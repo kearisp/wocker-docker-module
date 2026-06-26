@@ -25,17 +25,12 @@ export class ModemService extends CoreModemService {
 
     public get modem(): Modem {
         if(!this._modem && process.env.WOCKER_FIXTURES) {
-            try {
-                const {ModemRecorder, Fixtures} = require("docker-modem-mock");
+            const {ModemRecorder, Fixtures} = require("docker-modem-mock");
 
-                this._modem = new ModemRecorder({
-                    socketPath: "/var/run/docker.sock",
-                    recordFixtures: Fixtures.fromPath(process.env.WOCKER_FIXTURES)
-                });
-            }
-            catch(err) {
-                this.logService.error((err as Error).message);
-            }
+            this._modem = new ModemRecorder({
+                socketPath: "/var/run/docker.sock",
+                recordFixtures: Fixtures.fromPath(process.env.WOCKER_FIXTURES)
+            });
         }
 
         if(!this._modem) {
@@ -102,6 +97,15 @@ export class ModemService extends CoreModemService {
         return stream;
     }
 
+    public async demuxStream(stream: NodeJS.ReadWriteStream): Promise<void> {
+        await new Promise<void>((resolve, reject) => {
+            this.modem.demuxStream(stream, this.processService.stdout, this.processService.stderr);
+
+            stream.on("end", resolve);
+            stream.on("error", reject);
+        });
+    }
+
     public async followProgress(stream: NodeJS.ReadableStream): Promise<void> {
         let isEnded = false,
             line = 0;
@@ -119,18 +123,17 @@ export class ModemService extends CoreModemService {
         const renderLine = (id: string, status: string, current?: number, total?: number) => {
             if(typeof mapLines[id] === "undefined") {
                 mapLines[id] = line;
-                line++;
             }
 
-            const targetLine = mapLines[id];
-            const dy = line - targetLine - 1;
+            const targetLine = mapLines[id],
+                  dy = line - targetLine;
 
             if(dy > 0) {
-                this.stdout.write("\x1b[s");
-                this.stdout.write(`\x1b[${dy}A`);
+                this.processService.moveCursor?.(0, -dy);
             }
 
-            this.stdout.write("\x1b[2K\r");
+            this.processService.clearLine?.(0);
+            this.processService.cursorTo?.(0);
 
             let str = `${id}: ${status}`;
 
@@ -147,15 +150,22 @@ export class ModemService extends CoreModemService {
                 }
             }
 
-            this.stdout.write(str);
+            this.processService.write?.(str);
+
+            this.processService.cursorTo?.(0);
 
             if(dy > 0) {
-                this.stdout.write("\x1b[u");
+                this.processService.moveCursor?.(0, dy);
             }
             else {
-                this.stdout.write("\n");
+                this.processService.write?.("\n");
+                line++;
             }
         };
+
+        if(!this.processService.write) {
+            console.log("Please update wocker for proper logging");
+        }
 
         return new Promise<void>((resolve, reject) => {
             const handleEnd = () => {
@@ -215,18 +225,18 @@ export class ModemService extends CoreModemService {
                         if(obj.logs) {
                             for(const log of obj.logs) {
                                 const msg = Buffer.from(log.msg, "base64").toString();
-                                this.stdout.write(msg);
+                                this.processService.write?.(msg);
                                 line += msg.split("\n").length - 1;
                             }
                         }
                     }
                     else if(item.id === "moby.image.id") {
                         const str = `Image ID: ${item.aux.ID}`;
-                        this.stdout.write(`${str}\n`);
+                        this.processService.write?.(`${str}\n`);
                         line++;
                     }
                     else if(item.stream) {
-                        this.stdout.write(`${item.stream}`);
+                        this.processService.write?.(`${item.stream}`);
                         line += item.stream.split("\n").length - 1;
                     }
                     else if(item.id) {
@@ -244,17 +254,18 @@ export class ModemService extends CoreModemService {
                     else if(typeof item.aux === "object") {
                         const str = `auxID: ${item.aux.ID}`;
 
-                        this.stdout.write(`${str}\n`);
+                        this.processService.write?.(`${str}\n`);
 
                         line += Math.ceil(str.length / (this.stdout.columns || 80));
                     }
                     else if(item.status) {
-                        this.stdout.write(`${item.status}\n`);
+                        const status = `${item.status}\n`;
+                        this.processService.write?.(status);
 
-                        line += Math.ceil(item.status.length / (this.stdout.columns || 80));
+                        line += Math.ceil(status.length / (this.stdout.columns || 80));
                     }
                     else {
-                        console.info("Unexpected data", item);
+                        this.processService.write?.(`Unexpected data: ${JSON.stringify(item)}`);
                     }
                 }
             });

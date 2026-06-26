@@ -1,5 +1,6 @@
 import {
     Injectable,
+    ProcessService,
     LogService,
     ContainerService as CoreService
 } from "@wocker/core";
@@ -13,9 +14,10 @@ import {ImageService} from "./ImageService";
 @Injectable("DOCKER_CONTAINER_SERVICE")
 export class ContainerService extends CoreService {
     public constructor(
+        protected readonly processService: ProcessService,
+        protected readonly logService: LogService,
         protected readonly modemService: ModemService,
-        protected readonly imageService: ImageService,
-        protected readonly logService: LogService
+        protected readonly imageService: ImageService
     ) {
         super();
     }
@@ -272,6 +274,22 @@ export class ContainerService extends CoreService {
             }
             finally {
                 process.off("SIGWINCH", handleResize);
+            }
+        }
+        else {
+            await this.modemService.demuxStream(stream);
+        }
+
+        const {
+            ExitCode
+        } = await exec.inspect();
+
+        if(ExitCode) {
+            if("exitStatus" in this.processService) {
+                this.processService.exitCode = ExitCode;
+            }
+            else {
+                process.exitCode = ExitCode;
             }
         }
 

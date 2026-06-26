@@ -1,7 +1,6 @@
 import {
     Injectable,
     DockerService as CoreDockerService,
-    DockerServiceParams as Params,
     LogService
 } from "@wocker/core";
 import {Duplex} from "node:stream";
@@ -27,10 +26,16 @@ export class DockerService extends CoreDockerService {
         return this.modemService.docker;
     }
 
-    public async createVolume(name: string): Promise<VolumeCreateResponse> {
+    public async createVolume(name: string, options: CoreDockerService.CreateVolumeOptions = {}): Promise<VolumeCreateResponse> {
+        const {
+            Driver = "local",
+            ...rest
+        } = options;
+
         return await this.docker.createVolume({
+            ...rest,
             Name: name,
-            Driver: "local"
+            Driver
         });
     }
 
@@ -65,7 +70,6 @@ export class DockerService extends CoreDockerService {
         return this.containerService.get(name);
     }
 
-    // this.dockerService.listContainer
     public async listContainer(params: CoreDockerService.ListContainerParams) {
         return this.containerService.list(params);
     }
@@ -86,7 +90,7 @@ export class DockerService extends CoreDockerService {
         await this.imageService.rm(tag, force);
     }
 
-    public async imageLs(options?: Params.ImageList) {
+    public async imageLs(options?: CoreDockerService.ImageLSOptions) {
         return this.imageService.list(options);
     }
 
