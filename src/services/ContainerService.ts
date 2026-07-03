@@ -230,6 +230,7 @@ export class ContainerService extends CoreService {
         const {
             cmd = [],
             tty = false,
+            attach = tty,
             user
         } = Array.isArray(options) ? {cmd: options, tty: _tty} : options;
 
@@ -252,44 +253,46 @@ export class ContainerService extends CoreService {
             Tty: tty
         });
 
-        if(tty) {
-            const handleResize = async (): Promise<void> => {
-                const [width, height] = process.stdout.getWindowSize();
+        if(attach) {
+            if(tty) {
+                const handleResize = async (): Promise<void> => {
+                    const [width, height] = process.stdout.getWindowSize();
 
-                this.logService.debug("Exec resize", {
-                    width,
-                    height
-                });
+                    this.logService.debug("Exec resize", {
+                        width,
+                        height
+                    });
 
-                await exec.resize({
-                    w: width,
-                    h: height
-                });
-            };
+                    await exec.resize({
+                        w: width,
+                        h: height
+                    });
+                };
 
-            process.on("SIGWINCH", handleResize);
+                process.on("SIGWINCH", handleResize);
 
-            try {
-                await this.modemService.attachStream(stream);
-            }
-            finally {
-                process.off("SIGWINCH", handleResize);
-            }
-        }
-        else {
-            await this.modemService.demuxStream(stream);
-        }
-
-        const {
-            ExitCode
-        } = await exec.inspect();
-
-        if(ExitCode) {
-            if("exitStatus" in this.processService) {
-                this.processService.exitCode = ExitCode;
+                try {
+                    await this.modemService.attachStream(stream);
+                }
+                finally {
+                    process.off("SIGWINCH", handleResize);
+                }
             }
             else {
-                process.exitCode = ExitCode;
+                await this.modemService.demuxStream(stream);
+
+                const {
+                    ExitCode
+                } = await exec.inspect();
+
+                if(ExitCode) {
+                    if("exitStatus" in this.processService) {
+                        this.processService.exitCode = ExitCode;
+                    }
+                    else {
+                        process.exitCode = ExitCode;
+                    }
+                }
             }
         }
 
