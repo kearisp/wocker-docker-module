@@ -1,7 +1,7 @@
 {
     "name": "@wocker/docker-module",
     "type": "commonjs",
-    "version": "1.0.3",
+    "version": "1.0.4",
     "author": "Kris Papercut <krispcut@gmail.com>",
     "description": "Docker module for wocker",
     "license": "MIT",
