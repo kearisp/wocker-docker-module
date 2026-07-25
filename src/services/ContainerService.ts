@@ -305,7 +305,8 @@ export class ContainerService extends CoreService {
             : nameOrContainer;
 
         const {
-            signal
+            signal,
+            tail = 4
         } = params || {};
 
         if(!container) {
@@ -317,7 +318,7 @@ export class ContainerService extends CoreService {
             stdout: true,
             stderr: true,
             follow: true,
-            tail: 4
+            tail
         });
 
         stream.on("data", (data: Buffer) => {
