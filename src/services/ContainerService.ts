@@ -1,9 +1,11 @@
 import {
     Injectable,
+    AppService,
     ProcessService,
     LogService,
     ContainerService as CoreService
 } from "@wocker/core";
+import {Volume} from "@wocker/helpers";
 import {Duplex} from "stream";
 import type Docker from "dockerode";
 import type {Container, ContainerInfo} from "dockerode";
@@ -14,6 +16,7 @@ import {ImageService} from "./ImageService";
 @Injectable("DOCKER_CONTAINER_SERVICE")
 export class ContainerService extends CoreService {
     public constructor(
+        protected readonly appService: AppService,
         protected readonly processService: ProcessService,
         protected readonly logService: LogService,
         protected readonly modemService: ModemService,
@@ -34,7 +37,6 @@ export class ContainerService extends CoreService {
             entrypoint,
             tty = true,
             image,
-            projectId,
             restart,
             memory,
             memorySwap,
@@ -47,8 +49,24 @@ export class ContainerService extends CoreService {
             ports = [],
             cmd = [],
             aliases,
+            internal = false,
             network: networkName = "workspace"
         } = params;
+
+        if(this.appService.isVersionGTE("1.1.6")) {
+            const denyVolumes = volumes.filter((v) => {
+                const volume = Volume.parse(v);
+
+                return volume.isHostPath() && !this.appService.isAllowedPath(volume.source, internal);
+            });
+
+            if(denyVolumes.length > 0) {
+                throw new Error(
+                    `Mount path${denyVolumes.length > 1 ? "s" : ""} not allowed:\n` +
+                    denyVolumes.map((source) => `  ${source} — run "ws mount:allow ${source}" to allow it`).join("\n")
+                );
+            }
+        }
 
         try {
             const network = this.docker.getNetwork(networkName);
@@ -70,10 +88,7 @@ export class ContainerService extends CoreService {
             User: user,
             Image: image,
             Hostname: name,
-            Labels: {
-                ...projectId ? {projectId} : {},
-                ...labels || {}
-            },
+            Labels: labels,
             AttachStdin: true,
             AttachStdout: true,
             AttachStderr: true,

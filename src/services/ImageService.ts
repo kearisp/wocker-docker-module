@@ -11,7 +11,7 @@ import type Docker from "dockerode";
 import type {ImageInfo} from "dockerode";
 import DockerIgnore from "@balena/dockerignore";
 import tar, {Pack} from "tar-stream";
-import {Readable} from "stream";
+import {Readable, PassThrough} from "stream";
 import {pipeline} from "stream/promises";
 import zlib from "zlib";
 import {ModemService} from "./ModemService";
@@ -155,7 +155,7 @@ export class ImageService {
             }
         };
 
-        let build: Readable = pack;
+        let build: Readable;
 
         createPackV3(pack, contexts).then(() => {
             pack.finalize();
@@ -165,6 +165,9 @@ export class ImageService {
 
         if(variant === "tar.gz") {
             build = pack.pipe(zlib.createGzip());
+        }
+        else {
+            build = pack.pipe(new PassThrough());
         }
 
         const resolvedBuildArgs = Object.keys(buildArgs || {}).reduce<EnvConfig>((res, key) => {
