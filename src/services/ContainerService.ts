@@ -40,6 +40,7 @@ export class ContainerService extends CoreService {
             restart,
             memory,
             memorySwap,
+            deviceRequests,
             ulimits,
             extraHosts,
             networkMode = "bridge",
@@ -116,6 +117,17 @@ export class ContainerService extends CoreService {
                 MemorySwap: memorySwap,
                 NetworkMode: networkMode,
                 ExtraHosts: extraHosts,
+                ...deviceRequests ? {
+                    DeviceRequests: deviceRequests.map((request) => {
+                        return {
+                            Driver: request.driver,
+                            Count: request.deviceIds ? undefined : request.count,
+                            DeviceIDs: request.deviceIds,
+                            Capabilities: request.capabilities,
+                            Options: request.options
+                        };
+                    })
+                } : {},
                 Ulimits: ulimits ? Object.keys(ulimits).reduce<any>((res, name) => {
                     return [
                         ...res,
