@@ -93,7 +93,7 @@ export class ImageService {
                 for(const path of paths) {
                     const fullPath = dirPath ? `${dirPath}/${path}` : path;
 
-                    const stat = fs.stat(fullPath);
+                    const stat = fs.lstat(fullPath);
 
                     if((packPaths.has(fullPath) || !filter(fullPath)) && !stat.isDirectory()) {
                         continue;

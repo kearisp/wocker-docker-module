@@ -5,7 +5,7 @@ import {
 } from "@wocker/core";
 import {Duplex} from "node:stream";
 import type Docker from "dockerode";
-import type {Container, Volume, VolumeCreateResponse} from "dockerode";
+import type {Container, Volume} from "dockerode";
 import {ContainerService} from "./ContainerService";
 import {ModemService} from "./ModemService";
 import {ImageService} from "./ImageService";
@@ -26,7 +26,7 @@ export class DockerService extends CoreDockerService {
         return this.modemService.docker;
     }
 
-    public async createVolume(name: string, options: CoreDockerService.CreateVolumeOptions = {}): Promise<VolumeCreateResponse> {
+    public async createVolume(name: string, options: CoreDockerService.CreateVolumeOptions = {}): Promise<Volume> {
         const {
             Driver = "local",
             ...rest
