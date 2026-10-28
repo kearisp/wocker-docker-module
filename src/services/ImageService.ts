@@ -78,13 +78,15 @@ export class ImageService {
             ? params.dockerfile
             : params.src;
 
-        const contexts = Array.isArray(params.context)
-            ? ([...params.context]).reverse()
-            : [params.context];
+        const contexts = (Array.isArray(params.context) ? [...params.context] : [params.context])
+            .map((context): ImageService.BuildContext => {
+                return typeof context === "string" ? {path: context} : context;
+            })
+            .reverse();
 
         const pack = tar.pack({});
 
-        const createPackV3 = async (pack: Pack, contexts: string[]) => {
+        const createPackV3 = async (pack: Pack, contexts: ImageService.BuildContext[]) => {
             const packPaths = new Set();
 
             const packDir = async (fs: FileSystem, filter: (path: string) => boolean, dirPath: string) => {
@@ -143,13 +145,21 @@ export class ImageService {
             };
 
             for(const context of contexts) {
-                const fs = new FileSystem(context, this.driver);
+                const fs = new FileSystem(context.path, this.driver);
 
-                const filter = fs.exists(".dockerignore")
-                    ? DockerIgnore({ignorecase: false})
-                        .add(fs.readFile(".dockerignore").toString())
-                        .createFilter()
-                    : () => true;
+                const ignore = DockerIgnore({
+                    ignorecase: false
+                });
+
+                if(fs.exists(".dockerignore")) {
+                    ignore.add(fs.readFile(".dockerignore").toString());
+                }
+
+                if(context.ignore) {
+                    ignore.add(context.ignore);
+                }
+
+                const filter = ignore.createFilter();
 
                 await packDir(fs, filter, "");
             }
@@ -264,6 +274,11 @@ export namespace ImageService {
         };
     };
 
+    export type BuildContext = {
+        path: string;
+        ignore?: string[];
+    };
+
     export type BuildOptions = {
         version?: "1" | "2";
         tag: string;
@@ -273,7 +288,7 @@ export namespace ImageService {
         labels?: {
             [key: string]: string;
         };
-        context: string | string[];
+        context: string | BuildContext | (string | BuildContext)[];
     } & ({
         /** @deprecated */
         src: string;
