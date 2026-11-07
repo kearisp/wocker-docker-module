@@ -196,10 +196,23 @@ export class ContainerService extends CoreService {
     public async list(options: CoreService.ListParams = {}): Promise<ContainerInfo[]> {
         const {
             all,
+            label,
             name
         } = options;
 
         const filters: any = {};
+
+        if(label) {
+            if(typeof label === "string") {
+                filters.label = [label];
+            }
+            else if(Array.isArray(label)) {
+                filters.label = label;
+            }
+            else {
+                filters.label = Object.entries(label).map(([key, value]) => `${key}=${value}`);
+            }
+        }
 
         if(name) {
             filters.name = Array.isArray(name) ? name : [name]
